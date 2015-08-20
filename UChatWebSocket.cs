@@ -77,25 +77,22 @@ namespace SpeedLogger4UChat
             {
                 to_send[last++] = 126;
                 byte[] len = BitConverter.GetBytes((short)(msg_byte.Length));
-                to_send[last++] = len[1];
-                to_send[last++] = len[0];
+                
+                Array.Reverse(len);
+                Array.Copy(len, 0, to_send, ++last, 2);
+                ++last;
             }
             else {
-
                 to_send[last++] = 127;
                 byte[] len = BitConverter.GetBytes((short)(msg_byte.Length - 1));
-                to_send[last++] = len[7];
-                to_send[last++] = len[6];
-                to_send[last++] = len[5];
-                to_send[last++] = len[4];
-                to_send[last++] = len[3];
-                to_send[last++] = len[2];
-                to_send[last++] = len[1];
-                to_send[last++] = len[0];
+                Array.Reverse(len);
+                Array.Copy(len, 0, to_send, ++last, 2);
+                last += 7;
             }
 
             msg_byte.CopyTo(to_send, last);
             mtx.WaitOne();
+            Console.WriteLine(System.Text.Encoding.UTF8.GetString(to_send));
             TC.GetStream().Write(to_send, 0, last + msg_byte.Length);
             mtx.ReleaseMutex();
         }
@@ -186,6 +183,7 @@ namespace SpeedLogger4UChat
             List<string> to_return = new List<string>(5);
             while (len > last++)
             {
+                if (msg[last] == 0) continue;
                 if (msg[last] < 126)
                 {
                     byte tlen = msg[last];
