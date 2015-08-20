@@ -169,6 +169,17 @@ namespace SpeedLogger4UChat
                 }
             }
         }
+        private byte[] frame_cut_reverse_len_byte(ref byte[] buf, ref int last, byte len)
+        {
+            byte[] to_return = new byte[len];
+            while(len > 0)
+            {
+                --len;
+                to_return[len] = buf[++last];
+            }
+
+            return to_return;
+        }
         private string[] frame_cut(byte[] msg, int len)
         {
             int last = 0;
@@ -184,27 +195,14 @@ namespace SpeedLogger4UChat
                 }
                 else if (msg[last] == 126)
                 {
-                    byte[] len_tmp = new byte[2];
-                    len_tmp[1] = msg[++last];
-                    len_tmp[0] = msg[++last];
-                    ushort tlen = BitConverter.ToUInt16(len_tmp, 0);
+                    ushort tlen = BitConverter.ToUInt16(frame_cut_reverse_len_byte(ref msg, ref last, 2), 0);
                     to_return.Add(System.Text.Encoding.UTF8.GetString(msg, ++last, tlen));
                     
-                    last += tlen + 3;
+                    last += tlen;
                 }
                 else
                 {
-                    byte[] len_tmp = new byte[8];
-                    len_tmp[7] = msg[++last];
-                    len_tmp[6] = msg[++last];
-                    len_tmp[5] = msg[++last];
-                    len_tmp[4] = msg[++last];
-                    len_tmp[3] = msg[++last];
-                    len_tmp[2] = msg[++last];
-                    len_tmp[1] = msg[++last];
-                    len_tmp[0] = msg[++last];
-                    double tlen = BitConverter.ToDouble(len_tmp, 0);
-
+                    double tlen = BitConverter.ToDouble(frame_cut_reverse_len_byte(ref msg, ref last, 8), 0);
                     to_return.Add(System.Text.Encoding.UTF8.GetString(msg, ++last, (int)tlen));
 
                     last += (int)tlen;
