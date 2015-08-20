@@ -1,36 +1,51 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
+using System.Net.Sockets;
 
 namespace SpeedLogger4UChat
 {
+    public struct conn_info_item
+    {
+        public string key;
+        public string val;
+    }
+    public struct conn_info
+    {
+        public List<conn_info_item> cii;
+        public string room;
+        public string nick;
+    }
     enum WebSockState
 	{
-	         Connecting, Connected, Closed
+	         HandShaking, Connecting, Connected, Closed
 	}
 
     public class UChatWebSocket
     {
-        private System.Net.Sockets.TcpClient TC;
-        private System.Net.Sockets.NetworkStream NS;
+        private TcpClient TC;
+        private NetworkStream NS;
         private System.Threading.Thread Recv_Thread;
         private WebSockState State;
         private System.Threading.Mutex mtx;
+
+        private conn_info ci;
+        
         
         public UChatWebSocket()
         {
-            TC = new System.Net.Sockets.TcpClient();
+            TC = new TcpClient();
             mtx = new System.Threading.Mutex();
         }
 
-        public void Connect(int port)
+        public void Connect(int port, conn_info ci)
         {
             if (TC.Connected == true) throw new Exception("이미 연결되어 있습니다.");
+            if (ci.room == null || ci.room == "") throw new Exception("방 이름이 설정되어 있지 않습니다.");
+            if (ci.nick == null || ci.nick == "") throw new Exception("닉네임이 설정되어 있지 않습니다.");
+            this.ci = ci;
             TC.Connect("chat.uchat.co.kr", port);
 
-            byte[] buf = System.Text.Encoding.UTF8.GetBytes("GET /socket.io/1/websocket/"+time_token(port.ToString())+" HTTP/1.1\r\nHost: chat.uchat.co.kr:"+port.ToString()+"\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nUser-Agent: UChat_Bot\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nOrigin: http://esukmean.com\r\nSec-WebSocket-Version: 13\r\n\r\n");
-            Console.WriteLine(System.Text.Encoding.UTF8.GetString(buf));
+            byte[] buf = System.Text.Encoding.UTF8.GetBytes("GET /socket.io/1/websocket/" + time_token(port.ToString()) + " HTTP/1.1\r\nHost: chat.uchat.co.kr:" + port.ToString() + "\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nUser-Agent: UChat_Bot\r\nSec-WebSocket-Key: RV9TdWttZWFuJ3MgVUNoYXQgV2ViU29ja2V0TGli\r\nOrigin: https://www.esukmean.com\r\nSec-WebSocket-Version: 13\r\n\r\n");
             TC.GetStream().Write(buf, 0, buf.Length);
 
             State = WebSockState.Connecting;
@@ -47,7 +62,6 @@ namespace SpeedLogger4UChat
         public void Send(string msg)
         {
             if (TC.Connected == false) throw new Exception("소켓이 연결되지 않았습니다.");
-            //if (State == WebSockState.Connecting) throw new Exception("소켓을 연결중입니다.");
 
             byte[] msg_byte = System.Text.Encoding.UTF8.GetBytes(msg);
             byte[] to_send = new byte[msg_byte.Length + 100];
@@ -87,10 +101,30 @@ namespace SpeedLogger4UChat
         }
         private void recv(string msg)
         {
-            Console.WriteLine(msg);
             if (State == WebSockState.Connecting)
             {
-                Send("1::");
+                System.Text.StringBuilder sb = new System.Text.StringBuilder(250);
+                sb.Append("5:::{\"name\":\"join\",\"args\":[{");
+
+                if (ci.cii != null)
+                {
+                    for (int i = 0; i < ci.cii.Count; i++)
+                    {
+                        sb.Append("\"");
+                        sb.Append(ci.cii[i].key);
+                        sb.Append("\":\"");
+                        sb.Append(ci.cii[i].key);
+                        sb.Append("\",");
+                    }
+                }
+                sb.Append("\"nick\":\"");
+                sb.Append(ci.nick);
+                sb.Append("\", \"room\":\"");
+                sb.Append(ci.room);
+                sb.Append("\"");
+                sb.Append("}]}");
+
+                Send(sb.ToString());
                 State = WebSockState.Connected;
             }
             else if (msg == "2::")
@@ -99,32 +133,39 @@ namespace SpeedLogger4UChat
             }
             else
             {
-                Send("5:::{\"name\":\"join\",\"args\":[{\"room\":\"basic\",\"nick\":\"ASDFFFF(9abdb)\",\"mb_id\":\"\",\"md5\":\"\",\"chat_record\":true,\"chat_record_count\":15}]}");
+                
             }
         }
 
         private void monitor()
         {
-            if (TC == null) throw new Exception("TcpClient가 초기화되지 않았습니다. - monitor()");
+            if (TC == null || TC.Connected == false) throw new Exception("TcpClient가 초기화되지 않았거나 연결되지 않았습니다. - monitor()");
 
-            System.Net.Sockets.NetworkStream NS = TC.GetStream();
+            NetworkStream NS = TC.GetStream();
             byte[] buf = new byte[2048];
             int len = -1;
+
             while (TC.Connected == true)
             {
                 len = NS.Read(buf, 0, 2048);
                 if (len == 0) break;
-                if (State == WebSockState.Connected)
+
+                if (State == WebSockState.Connecting)
                 {
-                    string[] frame = frame_cut(buf, len);
-                    for (int i = 0; i < frame.Length; i++)
+                    for (int i = 0; i < buf.Length; i++)
                     {
-                        recv(frame[i]);
+                        if (buf[i] == '\r' && buf[i + 1] == '\n' && buf[i + 2] == '\r' && buf[i + 3] == '\n')
+                        {
+                            Array.Copy(buf, i + 4, buf, 0, buf.Length - 5 - i - 4);
+                        }
                     }
                 }
-                else if(State == WebSockState.Connecting)
+
+                string[] frame = frame_cut(buf, len);
+                for (int i = 0; i < frame.Length; i++)
                 {
-                    recv("");
+                    Console.WriteLine(frame[i]);
+                    recv(frame[i]);
                 }
             }
         }
