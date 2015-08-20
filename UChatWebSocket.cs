@@ -132,9 +132,8 @@ namespace SpeedLogger4UChat
         {
             int last = 0;
             List<string> to_return = new List<string>(5);
-            while (len > last)
+            while (len > last++)
             {
-                last += 1;
                 if (msg[last] < 126)
                 {
                     byte tlen = msg[last];
@@ -145,18 +144,27 @@ namespace SpeedLogger4UChat
                 else if (msg[last] == 126)
                 {
                     byte[] len_tmp = new byte[2];
-                    len_tmp[1] = msg[last + 1];
-                    len_tmp[0] = msg[last + 2];
+                    len_tmp[1] = msg[++last];
+                    len_tmp[0] = msg[++last];
                     ushort tlen = BitConverter.ToUInt16(len_tmp, 0);
-                    //Array.Copy(msg, last + 1, buf_tmp, 0, tlen);
-                    to_return.Add(System.Text.Encoding.UTF8.GetString(msg, last + 3, tlen));
+                    to_return.Add(System.Text.Encoding.UTF8.GetString(msg, ++last, tlen));
                     
                     last += tlen + 3;
                 }
                 else
                 {
-                    double tlen = BitConverter.ToDouble(msg, last);
-                    to_return.Add(System.Text.Encoding.UTF8.GetString(msg, last + 9, (int)tlen));
+                    byte[] len_tmp = new byte[8];
+                    len_tmp[7] = msg[++last];
+                    len_tmp[6] = msg[++last];
+                    len_tmp[5] = msg[++last];
+                    len_tmp[4] = msg[++last];
+                    len_tmp[3] = msg[++last];
+                    len_tmp[2] = msg[++last];
+                    len_tmp[1] = msg[++last];
+                    len_tmp[0] = msg[++last];
+                    double tlen = BitConverter.ToDouble(len_tmp, 0);
+
+                    to_return.Add(System.Text.Encoding.UTF8.GetString(msg, ++last, (int)tlen));
 
                     last += (int)tlen;
                 }
