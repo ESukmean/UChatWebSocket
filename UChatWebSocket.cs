@@ -4,37 +4,47 @@ using System.Net.Sockets;
 
 namespace SpeedLogger4UChat
 {
-    public struct conn_info_item
-    {
-        public string key;
-        public string val;
-    }
     public struct conn_info
     {
-        public List<conn_info_item> cii;
+        public Dictionary<string, string> cii; //연결시 추가적으로 서버에 보내야 하는 정보들 [예:md5, mb_id ···]
         public string room;
         public string nick;
     }
+    public struct user_info
+    {
+        public DateTime conn;
+        public bool admin;
+        public string mb_id;
+    }
     enum WebSockState
 	{
-	         HandShaking, Connecting, Connected, Closed
+        HandShaking, Connecting, Connected, Closed
 	}
 
     public class UChatWebSocket
     {
         private TcpClient TC;
-        private NetworkStream NS;
+        private System.Text.StringBuilder SB;
         private System.Threading.Thread Recv_Thread;
         private WebSockState State;
         private System.Threading.Mutex mtx;
 
         private conn_info ci;
-        
-        
+        public string nick
+        {
+            get { return ci.nick; }
+            set { Send("5:::{\"name\":\"set_nick\",\"args\":[{\"nick\":\"E_Sukmean\"}]}"); ci.nick = value; }
+        }
+        public string room
+        {
+            get { return ci.room; }
+        }
+
         public UChatWebSocket()
         {
             TC = new TcpClient();
             mtx = new System.Threading.Mutex();
+            SB = new System.Text.StringBuilder(250);
         }
 
         public void Connect(int port, conn_info ci)
@@ -85,6 +95,7 @@ namespace SpeedLogger4UChat
             else {
                 to_send[last++] = 127;
                 byte[] len = BitConverter.GetBytes((short)(msg_byte.Length - 1));
+
                 Array.Reverse(len);
                 Array.Copy(len, 0, to_send, ++last, 2);
                 last += 7;
@@ -100,28 +111,14 @@ namespace SpeedLogger4UChat
         {
             if (State == WebSockState.Connecting)
             {
-                System.Text.StringBuilder sb = new System.Text.StringBuilder(250);
-                sb.Append("5:::{\"name\":\"join\",\"args\":[{");
-
-                if (ci.cii != null)
+                if (ci.cii == null)
                 {
-                    for (int i = 0; i < ci.cii.Count; i++)
-                    {
-                        sb.Append("\"");
-                        sb.Append(ci.cii[i].key);
-                        sb.Append("\":\"");
-                        sb.Append(ci.cii[i].key);
-                        sb.Append("\",");
-                    }
+                    ci.cii = new Dictionary<string, string>();
+                    ci.cii.Add("nick", ci.nick);
+                    ci.cii.Add("room", ci.room);
                 }
-                sb.Append("\"nick\":\"");
-                sb.Append(ci.nick);
-                sb.Append("\", \"room\":\"");
-                sb.Append(ci.room);
-                sb.Append("\"");
-                sb.Append("}]}");
 
-                Send(sb.ToString());
+                Send(make_msg("join", ci.cii));
                 State = WebSockState.Connected;
             }
             else if (msg == "2::")
@@ -130,7 +127,79 @@ namespace SpeedLogger4UChat
             }
             else
             {
-                
+                msg = msg.Substring(4);
+                Newtonsoft.Json.JsonTextReader JTR = new Newtonsoft.Json.JsonTextReader(new System.IO.StringReader(msg));
+
+                char name_type = '\0';
+                Dictionary<string, string> args = new Dictionary<string, string>(5);
+
+                while (JTR.Read())
+                {
+                    switch (JTR.ValueType == typeof(string) ? (string)JTR.Value : "")
+                    {
+                        case "name":
+                            name_type = JTR.ReadAsString()[0];
+                            break;
+                        case "args":
+                            switch (name_type)
+                            {
+                                case 'u':
+                                    JTR.Read();
+                                    JTR.Read();
+                                    JTR.Read();
+
+                                    switch (JTR.ReadAsString())
+	                                {
+                                        case "l":
+                                            Dictionary<string, user_info> ui = new Dictionary<string,user_info>(8);
+                                            JTR.Read();
+                                            JTR.Read();
+                                            while (JTR.Read())
+                                            {
+                                                string nick = (string)JTR.Value;
+                                                user_info lui = new user_info();
+                                                JTR.Read();
+                                                while (JTR.Read() && JTR.ValueType.ToString() != "EndObject")
+                                                {
+                                                    switch ((string)JTR.Value)
+                                                    {
+                                                        case "a":
+                                                            lui.admin = JTR.ReadAsInt32() == 0 ? false : true;
+                                                            break;
+                                                        default:
+                                                            break;
+                                                    }
+                                                }
+
+                                                ui.Add(nick, lui);
+                                            }
+                                            break;
+                                        default:
+                                            break;
+	                                }
+
+                                    break;
+
+                                case 'c':
+                                    JTR.Skip();
+                                    JTR.Skip();
+
+                                    while (JTR.Read())
+                                    {
+                                        args.Add((string)JTR.Value, JTR.ReadAsString());
+                                    }
+                                    break;
+
+                                default:
+                                    break;
+                            }
+
+                            break;
+
+                        default:
+                            break;
+                    }
+                }
             }
         }
 
@@ -184,6 +253,7 @@ namespace SpeedLogger4UChat
             while (len > last++)
             {
                 if (msg[last] == 0) continue;
+
                 if (msg[last] < 126)
                 {
                     byte tlen = msg[last];
@@ -208,6 +278,24 @@ namespace SpeedLogger4UChat
             }
 
             return to_return.ToArray();
+        }
+        private string make_msg(string name, Dictionary<string, string> args)
+        {
+            SB.Clear();
+            SB.Append("5:::{\"name\":\"");
+            SB.Append(name);
+            SB.Append("\", \"args\":[{");
+            foreach (KeyValuePair<string, string> item in args)
+            {
+                SB.Append("\"");
+                SB.Append(item.Key);
+                SB.Append("\":\"");
+                SB.Append(item.Value);
+                SB.Append("\",");
+            }
+            SB.Append("\"esm_bot\":\"1\"}]}");
+
+            return SB.ToString();
         }
 
         private string time_token(string port)
