@@ -14,6 +14,7 @@ namespace SpeedLogger4UChat
     {
         public DateTime conn;
         public bool admin;
+        public bool login;
         public string mb_id;
     }
     enum WebSockState
@@ -159,19 +160,30 @@ namespace SpeedLogger4UChat
                                                 string nick = (string)JTR.Value;
                                                 user_info lui = new user_info();
                                                 JTR.Read();
-                                                while (JTR.Read() && JTR.ValueType.ToString() != "EndObject")
+                                                while (JTR.Read() && JTR.Value != null && JTR.ValueType.ToString() != "EndObject")
                                                 {
                                                     switch ((string)JTR.Value)
                                                     {
                                                         case "a":
                                                             lui.admin = JTR.ReadAsInt32() == 0 ? false : true;
                                                             break;
+                                                        case "t":
+                                                            lui.conn = (DateTime)JTR.ReadAsDateTime();
+                                                            break;
+                                                        case "m":
+                                                            lui.mb_id = JTR.ReadAsString();
+                                                            break;
+                                                        case "l":
+                                                            lui.login = JTR.ReadAsInt32() == 1 ? false : true;
+                                                            break;
+
                                                         default:
+                                                            JTR.Read();
                                                             break;
                                                     }
                                                 }
 
-                                                ui.Add(nick, lui);
+                                                if(nick != null) ui.Add(nick, lui);
                                             }
                                             break;
                                         default:
